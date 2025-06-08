@@ -1,37 +1,47 @@
 import pandas as pd
 
-# =================== DATA LOADING & PREPROCESSING =====================
-def preprocess(df):
-    df = df.copy()
-    for col in df.columns:
-        if df[col].dtype == 'bool':
-            df[col] = df[col].astype(int)
-        elif df[col].dtype == 'object':
-            df[col] = df[col].str.strip().str.upper()
-            if df[col].isin(['YES', 'NO']).all():
-                df[col] = df[col].map({'YES': 1, 'NO': 0})
-            elif df[col].isin(['M', 'F']).all():
-                df[col] = df[col].map({'M': 1, 'F': 0})
-    return df
+# =================== PREPROCESSING MANUAL =====================
 
-data_latih = pd.read_excel("data_latih.xlsx")
-data_uji = pd.read_excel("data_uji.xlsx")
+def preprocess_manual(data_rows):
+    hasil = []
+    for row in data_rows:
+        data = []
+        for key, val in row.items():
+            if key == 'GENDER':
+                val = 1 if str(val).strip().upper() == 'M' else 0
+            elif isinstance(val, str):
+                val = val.strip().upper()
+                if val == 'YES':
+                    val = 1
+                elif val == 'NO':
+                    val = 0
+                else:
+                    try:
+                        val = int(val)
+                    except:
+                        pass
+            elif isinstance(val, bool):
+                val = int(val)
+            data.append(val)
+        hasil.append(data)
+    return hasil
 
-data_latih = preprocess(data_latih)
-data_uji = preprocess(data_uji)
+# =================== DATA LOADING =====================
 
-X_train = data_latih.drop(columns='LUNG_CANCER').values.tolist()
-y_train = data_latih['LUNG_CANCER'].values.tolist()
-X_test = data_uji.drop(columns='LUNG_CANCER', errors='ignore').values.tolist()
+data_latih_df = pd.read_excel("data_latih.xlsx")
+data_uji_df = pd.read_excel("data_uji.xlsx")
+
+data_latih_dict = data_latih_df.to_dict(orient='records')
+data_uji_dict = data_uji_df.to_dict(orient='records')
+
+data_latih_processed = preprocess_manual(data_latih_dict)
+data_uji_processed = preprocess_manual(data_uji_dict)
+
+X_train = [row[:-1] for row in data_latih_processed]
+y_train = [row[-1] for row in data_latih_processed]
+X_test = data_uji_processed
 
 # ======================= DECISION TREE ============================
-class DecisionNode:
-    def __init__(self, feature=None, threshold=None, left=None, right=None, *, value=None):
-        self.feature = feature
-        self.threshold = threshold
-        self.left = left
-        self.right = right
-        self.value = value
 
 def gini_index(groups, classes):
     total = sum(len(group) for group in groups)
@@ -50,8 +60,10 @@ def gini_index(groups, classes):
 def test_split(index, value, dataset):
     left, right = [], []
     for row in dataset:
-        if row[index] < value: left.append(row)
-        else: right.append(row)
+        if row[index] < value:
+            left.append(row)
+        else:
+            right.append(row)
     return left, right
 
 def get_split(dataset):
@@ -107,10 +119,10 @@ def predict(node, row):
     else:
         return node
 
-# ======================= TRAINING & EVALUASI ========================
+# ======================= TRAINING ========================
+
 dataset_train = [x + [y] for x, y in zip(X_train, y_train)]
 tree = build_tree(dataset_train, max_depth=5, min_size=10)
-
 y_train_pred = [predict(tree, row) for row in X_train]
 
 def evaluate(y_true, y_pred):
@@ -144,26 +156,22 @@ print(f"Total data uji: {len(y_test_pred)}")
 print(f"Prediksi 'YES' kanker: {yes_prediksi} ({(yes_prediksi/len(y_test_pred))*100:.2f}%)")
 print(f"Prediksi 'NO'  kanker: {no_prediksi} ({(no_prediksi/len(y_test_pred))*100:.2f}%)")
 
+# ========== INPUT MANUAL PREDIKSI ===============
+
 print("\n========== INPUT MANUAL PREDIKSI ==========")
 input_data = {}
+fitur = list(data_latih_df.columns)
+fitur.remove("LUNG_CANCER")
 
-for col in data_latih.columns:
-    if col == 'LUNG_CANCER':
-        continue
-    user_input = input(f"Masukkan nilai untuk {col} (contoh: M/F, YES/NO, atau angka): ").strip().upper()
-    
-    # Deteksi dan konversi input numerik
-    if user_input.isdigit():
-        input_data[col] = int(user_input)
+for col in fitur:
+    val = input(f"Masukkan nilai untuk {col} (M/F, YES/NO, atau angka): ").strip().upper()
+    if val.isdigit():
+        input_data[col] = int(val)
     else:
-        input_data[col] = user_input
+        input_data[col] = val
 
-# Buat DataFrame dari input dan preprocess
-df_input = pd.DataFrame([input_data])
-df_input = preprocess(df_input)
-
-# Ubah ke list untuk diprediksi
-row_input = df_input.values[0].tolist()
+# Proses input manual
+row_input = preprocess_manual([input_data])[0]
 
 # Prediksi hasil
 hasil_prediksi = predict(tree, row_input)
