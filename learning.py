@@ -143,3 +143,29 @@ print("\n========== PREDIKSI DATA UJI ==========")
 print(f"Total data uji: {len(y_test_pred)}")
 print(f"Prediksi 'YES' kanker: {yes_prediksi} ({(yes_prediksi/len(y_test_pred))*100:.2f}%)")
 print(f"Prediksi 'NO'  kanker: {no_prediksi} ({(no_prediksi/len(y_test_pred))*100:.2f}%)")
+
+print("\n========== INPUT MANUAL PREDIKSI ==========")
+input_data = {}
+
+for col in data_latih.columns:
+    if col == 'LUNG_CANCER':
+        continue
+    user_input = input(f"Masukkan nilai untuk {col} (contoh: M/F, YES/NO, atau angka): ").strip().upper()
+    
+    # Deteksi dan konversi input numerik
+    if user_input.isdigit():
+        input_data[col] = int(user_input)
+    else:
+        input_data[col] = user_input
+
+# Buat DataFrame dari input dan preprocess
+df_input = pd.DataFrame([input_data])
+df_input = preprocess(df_input)
+
+# Ubah ke list untuk diprediksi
+row_input = df_input.values[0].tolist()
+
+# Prediksi hasil
+hasil_prediksi = predict(tree, row_input)
+
+print("\nHasil Prediksi: ", "YES (Berisiko Kanker Paru-Paru)" if hasil_prediksi == 1 else "NO (Tidak Berisiko Kanker Paru-Paru)")
