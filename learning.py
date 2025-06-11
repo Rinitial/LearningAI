@@ -1,8 +1,8 @@
 import pandas as pd
+import math
 
-# =================== PREPROCESSING MANUAL =====================
-
-def preprocess_manual(data_rows):
+# =================== KONVERSI NILAI =====================
+def konversi_nilai(data_rows):
     hasil = []
     for row in data_rows:
         data = []
@@ -26,37 +26,32 @@ def preprocess_manual(data_rows):
         hasil.append(data)
     return hasil
 
-# =================== DATA LOADING =====================
+# =================== ENTROPY DAN INFORMATION GAIN =====================
+def entropy(group):
+    total = len(group)
+    if total == 0:
+        return 0
+    count = {}
+    for row in group:
+        label = row[-1]
+        if label not in count:
+            count[label] = 0
+        count[label] += 1
+    ent = 0.0
+    for c in count.values():
+        p = c / total
+        ent -= p * math.log2(p)
+    return ent
 
-data_latih_df = pd.read_excel("data_latih.xlsx")
-data_uji_df = pd.read_excel("data_uji.xlsx")
-
-data_latih_dict = data_latih_df.to_dict(orient='records')
-data_uji_dict = data_uji_df.to_dict(orient='records')
-
-data_latih_processed = preprocess_manual(data_latih_dict)
-data_uji_processed = preprocess_manual(data_uji_dict)
-
-X_train = [row[:-1] for row in data_latih_processed]
-y_train = [row[-1] for row in data_latih_processed]
-X_test = data_uji_processed
-
-# ======================= DECISION TREE ============================
-
-def gini_index(groups, classes):
-    total = sum(len(group) for group in groups)
-    gini = 0.0
+def information_gain(parent, groups):
+    total_len = len(parent)
+    parent_entropy = entropy(parent)
+    weighted_entropy = 0.0
     for group in groups:
-        size = len(group)
-        if size == 0: continue
-        score = 0.0
-        labels = [row[-1] for row in group]
-        for c in classes:
-            p = labels.count(c) / size
-            score += p * p
-        gini += (1 - score) * (size / total)
-    return gini
+        weighted_entropy += (len(group) / total_len) * entropy(group)
+    return parent_entropy - weighted_entropy
 
+# ================== TREE BUILDING USING ENTROPY ===================
 def test_split(index, value, dataset):
     left, right = [], []
     for row in dataset:
@@ -67,15 +62,20 @@ def test_split(index, value, dataset):
     return left, right
 
 def get_split(dataset):
-    class_values = list(set(row[-1] for row in dataset))
-    b_index, b_value, b_score, b_groups = None, None, float('inf'), None
+    best_gain = -1
+    best_index = None
+    best_value = None
+    best_groups = None
     for index in range(len(dataset[0]) - 1):
         for row in dataset:
             groups = test_split(index, row[index], dataset)
-            gini = gini_index(groups, class_values)
-            if gini < b_score:
-                b_index, b_value, b_score, b_groups = index, row[index], gini, groups
-    return {'index': b_index, 'value': b_value, 'groups': b_groups}
+            gain = information_gain(dataset, groups)
+            if gain > best_gain:
+                best_index = index
+                best_value = row[index]
+                best_gain = gain
+                best_groups = groups
+    return {'index': best_index, 'value': best_value, 'groups': best_groups}
 
 def to_terminal(group):
     outcomes = [row[-1] for row in group]
@@ -119,13 +119,24 @@ def predict(node, row):
     else:
         return node
 
-# ======================= TRAINING ========================
+# =================== DATA LOADING =====================
+data_latih_df = pd.read_excel("data_latih.xlsx")
+data_uji_df = pd.read_excel("data_uji.xlsx")
+
+data_latih_dict = data_latih_df.to_dict(orient='records')
+data_uji_dict = data_uji_df.to_dict(orient='records')
+
+data_latih_processed = konversi_nilai(data_latih_dict)
+data_uji_processed = konversi_nilai(data_uji_dict)
+
+X_train = [row[:-1] for row in data_latih_processed]
+y_train = [row[-1] for row in data_latih_processed]
 
 dataset_train = [x + [y] for x, y in zip(X_train, y_train)]
 tree = build_tree(dataset_train, max_depth=5, min_size=10)
-y_train_pred = [predict(tree, row) for row in X_train]
 
-def evaluate(y_true, y_pred):
+# ======================= EVALUASI ========================
+def evaluate(y_true, y_pred, label="LATIH"):
     TP = sum((yt == 1 and yp == 1) for yt, yp in zip(y_true, y_pred))
     TN = sum((yt == 0 and yp == 0) for yt, yp in zip(y_true, y_pred))
     FP = sum((yt == 0 and yp == 1) for yt, yp in zip(y_true, y_pred))
@@ -136,44 +147,56 @@ def evaluate(y_true, y_pred):
     recall = TP / (TP + FN) if (TP + FN) != 0 else 0
     f1 = 2 * prec * recall / (prec + recall) if (prec + recall) != 0 else 0
 
-    print("\n========== EVALUASI DATA LATIH ==========")
+    print(f"\n========== EVALUASI DATA {label.upper()} ==========")
     print(f"Akurasi  : {acc:.4f} ({acc*100:.2f}%)")
     print(f"Presisi  : {prec:.4f} ({prec*100:.2f}%)")
     print(f"Recall   : {recall:.4f} ({recall*100:.2f}%)")
     print(f"F1-Score : {f1:.4f} ({f1*100:.2f}%)")
     print(f"TP: {TP}, TN: {TN}, FP: {FP}, FN: {FN}")
-    print(f"Model mempelajari data latih dengan {'baik' if acc > 0.8 else 'kurang optimal'}.")
+    print(f"Model memprediksi data {label.lower()} dengan {'baik' if acc > 0.8 else 'perlu perbaikan'}.")
 
-evaluate(y_train, y_train_pred)
+# ======================= EVALUASI LATIH & UJI ========================
+y_train_pred = [predict(tree, row) for row in X_train]
+evaluate(y_train, y_train_pred, label="latih")
 
-# ========== PREDIKSI DATA UJI TANPA LABEL ===============
-y_test_pred = [predict(tree, row) for row in X_test]
-yes_prediksi = y_test_pred.count(1)
-no_prediksi = y_test_pred.count(0)
+if 'LUNG_CANCER' in data_uji_df.columns:
+    y_test_true = [row[-1] for row in data_uji_processed]
+    X_test = [row[:-1] for row in data_uji_processed]
+    y_test_pred = [predict(tree, row) for row in X_test]
+    evaluate(y_test_true, y_test_pred, label="uji")
+else:
+    X_test = data_uji_processed
+    y_test_pred = [predict(tree, row) for row in X_test]
+    yes_prediksi = y_test_pred.count(1)
+    no_prediksi = y_test_pred.count(0)
+    print("\n========== PREDIKSI DATA UJI ==========")
+    print(f"Total data uji: {len(y_test_pred)}")
+    print(f"Prediksi 'YES' kanker: {yes_prediksi} ({(yes_prediksi/len(y_test_pred))*100:.2f}%)")
+    print(f"Prediksi 'NO'  kanker: {no_prediksi} ({(no_prediksi/len(y_test_pred))*100:.2f}%)")
 
-print("\n========== PREDIKSI DATA UJI ==========")
-print(f"Total data uji: {len(y_test_pred)}")
-print(f"Prediksi 'YES' kanker: {yes_prediksi} ({(yes_prediksi/len(y_test_pred))*100:.2f}%)")
-print(f"Prediksi 'NO'  kanker: {no_prediksi} ({(no_prediksi/len(y_test_pred))*100:.2f}%)")
-
-# ========== INPUT MANUAL PREDIKSI ===============
-
+# ========== INPUT MANUAL PREDIKSI ==========
 print("\n========== INPUT MANUAL PREDIKSI ==========")
 input_data = {}
 fitur = list(data_latih_df.columns)
 fitur.remove("LUNG_CANCER")
 
 for col in fitur:
-    val = input(f"Masukkan nilai untuk {col} (M/F, YES/NO, atau angka): ").strip().upper()
-    if val.isdigit():
-        input_data[col] = int(val)
-    else:
-        input_data[col] = val
+    while True:
+        val = input(f"Masukkan nilai untuk {col} (M/F, YES/NO, atau angka): ").strip().upper()
+        if col == 'GENDER' and val in ['M', 'F']:
+            input_data[col] = val
+            break
+        elif val in ['YES', 'NO']:
+            input_data[col] = val
+            break
+        else:
+            try:
+                input_data[col] = int(val)
+                break
+            except:
+                print("Input tidak valid. Ulangi.")
 
-# Proses input manual
-row_input = preprocess_manual([input_data])[0]
-
-# Prediksi hasil
+row_input = konversi_nilai([input_data])[0]
 hasil_prediksi = predict(tree, row_input)
 
 print("\nHasil Prediksi: ", "YES (Berisiko Kanker Paru-Paru)" if hasil_prediksi == 1 else "NO (Tidak Berisiko Kanker Paru-Paru)")
